@@ -56,7 +56,7 @@ void test_inform_body_matches_minimal_python_projection() {
     require(openomada::protocol::json_int(openomada::protocol::object_member(root, "needReply")).value_or(-1) == 1, "needReply true");
 
     auto* device_info = openomada::protocol::object_member(root, "deviceInfo");
-    require(openomada::protocol::json_string(openomada::protocol::object_member(device_info, "upTime")).value_or("") == "12", "uptime is string");
+    require(openomada::protocol::json_string(openomada::protocol::object_member(device_info, "upTime")).value_or("") == "0 days 00:00:12", "uptime is string");
     require(json_object_get_boolean(openomada::protocol::object_member(device_info, "isFactory")) == 0, "inform is not factory");
     require(openomada::protocol::json_string(openomada::protocol::object_member(device_info, "mainMac")).value_or("") == "02-11-22-33-44-55", "mainMac Omada format");
 

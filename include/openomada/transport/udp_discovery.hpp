@@ -17,6 +17,7 @@ struct UdpEndpoint {
 struct UdpDiscoveryOptions {
     std::uint16_t local_port{0};
     std::uint32_t timeout_seconds{1};
+    std::string local_ip{};
 };
 
 class UdpDiscoveryTransport {

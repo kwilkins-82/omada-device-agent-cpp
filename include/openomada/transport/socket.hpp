@@ -28,12 +28,14 @@ private:
 };
 
 bool set_socket_timeout(int fd, std::uint32_t timeout_seconds, std::string* error);
+bool bind_socket_to_ip(int fd, const std::string& ip, std::string* error);
 bool connect_tcp(
     SocketFd& out,
     const std::string& host,
     std::uint16_t port,
     std::uint32_t timeout_seconds,
-    std::string* error
+    std::string* error,
+    const std::string& bind_ip = {}
 );
 bool read_exact(int fd, std::uint8_t* buffer, std::size_t size, bool* timeout, std::string* error);
 bool write_all(int fd, const std::uint8_t* buffer, std::size_t size, std::string* error);

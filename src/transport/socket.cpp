@@ -3,6 +3,7 @@
 #include <cerrno>
 #include <cstring>
 
+#include <arpa/inet.h>
 #include <fcntl.h>
 #include <netdb.h>
 #include <sys/select.h>
@@ -88,12 +89,32 @@ bool set_socket_timeout(int fd, std::uint32_t timeout_seconds, std::string* erro
     return true;
 }
 
+bool bind_socket_to_ip(int fd, const std::string& ip, std::string* error) {
+    if (ip.empty()) {
+        return true;
+    }
+    sockaddr_in local{};
+    local.sin_family = AF_INET;
+    if (::inet_pton(AF_INET, ip.c_str(), &local.sin_addr) != 1) {
+        if (error != nullptr) {
+            *error = "bind: invalid local IP: " + ip;
+        }
+        return false;
+    }
+    if (::bind(fd, reinterpret_cast<sockaddr*>(&local), sizeof(local)) < 0) {
+        assign_errno(error, "bind");
+        return false;
+    }
+    return true;
+}
+
 bool connect_tcp(
     SocketFd& out,
     const std::string& host,
     std::uint16_t port,
     std::uint32_t timeout_seconds,
-    std::string* error
+    std::string* error,
+    const std::string& bind_ip
 ) {
     addrinfo hints{};
     hints.ai_socktype = SOCK_STREAM;
@@ -119,6 +140,9 @@ bool connect_tcp(
             continue;
         }
         if (!set_nonblocking(candidate.get(), true, &last_error)) {
+            continue;
+        }
+        if (!bind_socket_to_ip(candidate.get(), bind_ip, &last_error)) {
             continue;
         }
 

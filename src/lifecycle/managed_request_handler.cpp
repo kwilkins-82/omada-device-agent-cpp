@@ -61,6 +61,13 @@ application::SetRequestEvaluation evaluate_set_request_with_optional_applier(
         evaluation.error = std::move(parsed.error);
         return evaluation;
     }
+    if (applier->accepts_all()) {
+        // Strict downlink no-op: acknowledge every controller write (WLAN/radio/
+        // channel provisioning, LED, reboot, upgrade, portal, ...) with a success
+        // ACK without touching the host system.
+        evaluation.errcode = application::kConfigOk;
+        return evaluation;
+    }
     if (!evaluation.update.unhandled_keys.empty()) {
         evaluation.errcode = application::kConfigError;
         evaluation.error = "unsupported keys: ";
@@ -178,7 +185,8 @@ ManagedRequestResult handle_managed_request(
         result.config_version = body.config_version;
         result.error = evaluation.error;
         if (evaluation.errcode == application::kConfigOk) {
-            result.configuration_applied = application::is_actionable_config(evaluation.update);
+            const bool noop_ack = applier != nullptr && applier->accepts_all();
+            result.configuration_applied = application::is_actionable_config(evaluation.update) && !noop_ack;
             result.configuration_changed = result.configuration_applied;
             if (body.config_version >= 0 &&
                 body.config_version <= std::numeric_limits<std::uint32_t>::max()) {

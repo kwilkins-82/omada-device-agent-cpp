@@ -24,6 +24,47 @@ sockets, TLS, JSON, files, and OpenWrt process boundaries on musl systems.
 > or Omada, and must not be used on production networks until the specific
 > controller version, OpenWrt target, and device workflow have been validated.
 
+## About This Fork
+
+This fork retargets the native agent away from OpenWrt. Instead of managing a
+real TP-Link AP, it presents one or more synthetic EAP devices to an Omada
+Controller from an ordinary x86_64 Linux server, and reports radio and client
+telemetry supplied by external CSV files. The OpenWrt UCI/hostapd/openNDS
+backend from the upstream branch is still present and untouched; this fork adds
+a parallel, non-OpenWrt runtime on top of the same protocol stack.
+
+How it differs from the main branch:
+
+- **Runs natively on Ubuntu/Debian, not OpenWrt.** One static-ish C++17 binary
+  (`openomada-agent-native`) performs discovery, adoption, ECSP V2
+  authentication, initial sync, and the managed session loop against a real
+  controller, with no `uci`/`ubus`/`procd` involved.
+- **Strict read-only downlink.** Every actionable controller message
+  (`SET_REQUEST`, `GET_REQUEST`, client operations, LED, etc.) is acknowledged
+  with `errorCode: 0` and never executed. The agent is a telemetry reporter
+  only; it must never mutate the host it runs on.
+- **CSV-driven uplink telemetry.** On each 30 s INFORM cycle the agent reads an
+  AP-state CSV and a connected-clients CSV and projects them into the inform
+  body: `wSettings_2G`/`wSettings_5G` radio status, `clients` stats, and LAN
+  info. Rows are matched per-instance by `--eth-mac`.
+- **Multiple coexisting instances.** `--bind-ip`, `--eth-mac`, `--ap-name`,
+  `--model`, and `--config` CLI overrides (plus `OPENOMADA_*` environment
+  variables) let several agents share one host, one controller, and one binary,
+  each binding a distinct source IP and device identity. A systemd template
+  unit (`omada-ecsp-proxy@.service`) and per-instance env files live in the
+  untracked `deploy/` directory.
+- **Wire-format work validated against a live controller.** Inform keys,
+  `txPower` formatting, device identity fields (`sn`, `hwId`, `oemId`, uptime),
+  and the adoption-time `radioCap`/`channelInfo`/`devCap` structures were
+  corrected and verified against Omada Controller `5.15.24.19`: the controller
+  now decodes every inform cleanly and displays radios and clients for the
+  synthetic devices.
+
+Validated configuration: two instances (EAP225/EAP610 profiles) on Ubuntu 24
+x86_64 against Omada Controller `5.15.24.19`, adopting, reconnecting after
+restart without a manual re-adopt, and informing every 30 s with CSV telemetry.
+Everything here is still alpha and unofficial; see the warning above.
+
 ## Migration Scope
 
 The native implementation is being built in phases. Each phase preserves the

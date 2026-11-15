@@ -6,6 +6,7 @@
 #include <vector>
 
 #include <arpa/inet.h>
+#include <arpa/inet.h>
 #include <netdb.h>
 #include <sys/socket.h>
 
@@ -35,10 +36,16 @@ TransportStatus UdpDiscoveryTransport::open(const UdpDiscoveryOptions& options) 
     if (!set_socket_timeout(candidate.get(), timeout_seconds_, &error)) {
         return TransportStatus::failure(error);
     }
-    if (options.local_port != 0) {
+    if (options.local_port != 0 || !options.local_ip.empty()) {
         sockaddr_in addr{};
         addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        if (!options.local_ip.empty()) {
+            if (::inet_pton(AF_INET, options.local_ip.c_str(), &addr.sin_addr) != 1) {
+                return TransportStatus::failure("bind: invalid local IP: " + options.local_ip);
+            }
+        } else {
+            addr.sin_addr.s_addr = htonl(INADDR_ANY);
+        }
         addr.sin_port = htons(options.local_port);
         if (bind(candidate.get(), reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) < 0) {
             return errno_failure("bind");

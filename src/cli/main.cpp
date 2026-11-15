@@ -1,4 +1,4 @@
-#include <algorithm>
+#include <arpa/inet.h>
 #include <cerrno>
 #include <csignal>
 #include <cstdint>
@@ -14,6 +14,7 @@
 
 #include "openomada/application/configuration.hpp"
 #include "openomada/application/configuration_applier.hpp"
+#include "openomada/application/csv_telemetry.hpp"
 #include "openomada/application/daemon_config.hpp"
 #include "openomada/application/inform.hpp"
 #include "openomada/domain/device_profile.hpp"
@@ -22,12 +23,7 @@
 #include "openomada/lifecycle/managed_request_handler.hpp"
 #include "openomada/lifecycle/managed_session.hpp"
 #include "openomada/lifecycle/reconnect.hpp"
-#include "openomada/openwrt/inform_provider.hpp"
-#include "openomada/openwrt/opennds.hpp"
-#include "openomada/openwrt/process.hpp"
-#include "openomada/openwrt/uci.hpp"
 #include "openomada/persistence/session_state_repository.hpp"
-#include "openomada/platform/capabilities.hpp"
 #include "openomada/transport/tls_client.hpp"
 #include "openomada/transport/udp_discovery.hpp"
 
@@ -149,6 +145,10 @@ std::vector<openomada::application::EnvironmentVariable> collect_environment() {
         "OPENOMADA_MANAGE_PORT",
         "OPENOMADA_TLS_VERIFY",
         "OPENOMADA_TLS_CA_FILE",
+        "OPENOMADA_BIND_IP",
+        "OPENOMADA_PHY",
+        "OPENOMADA_APS_CSV",
+        "OPENOMADA_CLIENTS_CSV",
         "OPENOMADA_DEVICE_NAME",
         "OPENOMADA_MODEL",
         "OPENOMADA_MODEL_VERSION",
@@ -190,93 +190,69 @@ void print_help() {
         << "Usage: openomada-agent-native [--config PATH] [--check-config] [--dry-run] [--once]\n"
         << "\n"
         << "Options:\n"
-        << "  --config PATH      UCI-style runtime config path, default /etc/config/openomada\n"
+        << "  --config PATH      Runtime config path, default /etc/config/openomada\n"
         << "  --check-config     Load and validate config, then exit\n"
-        << "  --dry-run          Detect capabilities and print runtime plan without network I/O\n"
+        << "  --dry-run          Print runtime plan without network I/O\n"
         << "  --once             Stop after adoption/reconnect and initial sync\n"
+        << "  --bind-ip IP       Bind UDP discovery (:29810) and management TCP/TLS (:29814)\n"
+        << "                     sockets to this local source IP (e.g. 192.0.2.10)\n"
+        << "  --eth-mac MAC      Override the device MAC used in ECSP headers and deviceInfo.mainMac\n"
+        << "                     (e.g. 02:00:00:00:00:01)\n"
+        << "  --ap-name NAME     Override the AP device name reported to the controller\n"
+        << "  --model MODEL      Override the AP model string reported to the controller\n"
+        << "  --aps-csv PATH     Uplink AP state CSV (default ~/src/wap_ecsp_state.csv)\n"
+        << "  --clients-csv PATH Uplink client CSV (default ~/src/wap_ecsp_clients.csv)\n"
         << "  --version          Print version and exit\n"
         << "  --help             Print this help\n";
 }
 
-std::string host_port(const std::string& host, std::uint16_t port) {
-    return host + ":" + std::to_string(port);
+void apply_runtime_option_overrides(
+    const openomada::application::RuntimeOptions& options,
+    openomada::application::DaemonConfig* config,
+    std::string* error
+) {
+    if (config == nullptr) {
+        return;
+    }
+    if (!options.bind_ip.empty()) {
+        in_addr probe {};
+        if (::inet_pton(AF_INET, options.bind_ip.c_str(), &probe) != 1) {
+            if (error != nullptr && error->empty()) {
+                *error = "--bind-ip must be a valid IPv4 address: " + options.bind_ip;
+            }
+            return;
+        }
+        config->settings.bind_ip = options.bind_ip;
+        if (config->settings.device_ip.empty() || config->settings.device_ip == "0.0.0.0") {
+            config->settings.device_ip = options.bind_ip;
+        }
+    }
+    if (!options.eth_mac.empty()) {
+        auto parsed_mac = openomada::domain::MacAddress::parse(options.eth_mac);
+        if (!parsed_mac.has_value()) {
+            if (error != nullptr && error->empty()) {
+                *error = "--eth-mac must be a valid MAC address: " + options.eth_mac;
+            }
+            return;
+        }
+        config->settings.mac = *parsed_mac;
+    }
+    if (!options.ap_name.empty()) {
+        config->settings.device_name = options.ap_name;
+    }
+    if (!options.model.empty()) {
+        config->settings.model = options.model;
+    }
+    if (!options.aps_csv.empty()) {
+        config->settings.aps_csv = options.aps_csv;
+    }
+    if (!options.clients_csv.empty()) {
+        config->settings.clients_csv = options.clients_csv;
+    }
 }
 
-class RuntimeSupportGuard final : public openomada::application::ConfigurationApplier {
-public:
-    explicit RuntimeSupportGuard(bool portal_supported) : portal_supported_(portal_supported) {}
-
-    openomada::application::ConfigurationApplyResult apply(
-        const openomada::application::AccessPointConfigUpdate& update
-    ) override {
-        if (update.led.has_value() || update.wifi_control_led.has_value()) {
-            return {false, false, "LED configuration is parsed but has no native OpenWrt backend yet"};
-        }
-        if (!update.client_operations.empty()) {
-            return {false, false, "clientOperation is parsed but has no native OpenWrt backend yet"};
-        }
-        if (update.client_rate_config.has_value()) {
-            return {false, false, "clientRateConfig is parsed but has no native OpenWrt backend yet"};
-        }
-        if (!portal_supported_ &&
-            (update.portal_free_policy.has_value() ||
-             !update.portal_configs.empty() ||
-             !update.client_configs.empty())) {
-            return {false, false, "portal configuration requires enabled openNDS capability"};
-        }
-        return {true, false, {}};
-    }
-
-private:
-    bool portal_supported_{false};
-};
-
-openomada::platform::PlatformCapabilities detect_runtime_capabilities(
-    const openomada::application::DaemonConfig& config,
-    const Logger& logger
-) {
-    openomada::platform::PlatformCapabilityInput input;
-    input.platform = config.openwrt.platform;
-    input.radio_bands = config.openwrt.radio_bands;
-    input.max_ssids = config.openwrt.max_ssids;
-    input.tools.uci = openomada::openwrt::command_available("uci");
-    input.tools.ubus = openomada::openwrt::command_available("ubus");
-    input.tools.nft = openomada::openwrt::command_available("nft");
-    input.tools.hostapd = openomada::openwrt::command_available("hostapd");
-    input.tools.dnsmasq = openomada::openwrt::command_available("dnsmasq");
-    input.tools.opennds = openomada::openwrt::command_available("opennds");
-    input.tools.ndsctl = openomada::openwrt::command_available("ndsctl");
-    input.tools.iw = openomada::openwrt::command_available("iw");
-
-    if (input.tools.iw) {
-        const auto iw = openomada::openwrt::run_process({"iw", "list"});
-        if (iw.ok) {
-            input.iw_list_output = iw.output;
-        } else {
-            logger.debug("could not read iw list: " + iw.error);
-        }
-    }
-
-    input.cap_ssid_vlan = input.tools.uci;
-    input.cap_management_vlan =
-        input.tools.uci &&
-        !config.openwrt.management_vlan_interface.empty() &&
-        !config.openwrt.management_vlan_device.empty();
-    input.cap_portal =
-        config.openwrt.portal_enabled &&
-        lowercase(config.openwrt.portal_engine) == "opennds" &&
-        input.tools.opennds &&
-        input.tools.ndsctl;
-    input.cap_client_operations = false;
-    input.cap_client_rate_limits = false;
-    input.cap_led = false;
-
-    auto result = openomada::platform::detect_platform_capabilities(input);
-    if (!result.ok) {
-        logger.warning("capability detection failed: " + result.error + "; using generic disabled capabilities");
-        return {};
-    }
-    return result.capabilities;
+std::string host_port(const std::string& host, std::uint16_t port) {
+    return host + ":" + std::to_string(port);
 }
 
 struct LiveSession {
@@ -318,6 +294,7 @@ LiveSessionResult connect_and_sync(
         managed_settings.tcp_timeout_seconds,
         managed_settings.tls_verify,
         managed_settings.tls_ca_file,
+        managed_settings.bind_ip,
     });
     if (!connected.ok) {
         result.error = connected.error;
@@ -375,7 +352,7 @@ void send_managed_rediscovery(
     auto managed_settings = openomada::lifecycle::settings_for_managed_state(settings, state);
     openomada::domain::AccessPointProfile profile(managed_settings);
     openomada::transport::UdpDiscoveryTransport udp;
-    const auto opened = udp.open({managed_settings.local_discovery_port, 1});
+    const auto opened = udp.open({managed_settings.local_discovery_port, 1, managed_settings.bind_ip});
     if (!opened.ok) {
         logger.warning("managed rediscovery UDP open failed: " + opened.error);
         return;
@@ -453,7 +430,7 @@ LiveSessionResult discover_and_adopt(
 ) {
     LiveSessionResult result;
     openomada::transport::UdpDiscoveryTransport udp;
-    const auto opened = udp.open({settings.local_discovery_port, 2});
+    const auto opened = udp.open({settings.local_discovery_port, 2, settings.bind_ip});
     if (!opened.ok) {
         result.error = opened.error;
         return result;
@@ -647,9 +624,9 @@ int run_daemon(
     }
 
     logger.info("config: " + openomada::application::daemon_config_summary(config));
-    openomada::openwrt::OpenWrtProcessExecutor executor;
-    const auto capabilities = detect_runtime_capabilities(config, logger);
-    logger.info("capabilities: " + openomada::platform::capability_summary(capabilities));
+    if (!config.settings.bind_ip.empty()) {
+        logger.info("binding discovery (:29810) and management (:29814) sockets to local IP " + config.settings.bind_ip);
+    }
     if (options.dry_run) {
         logger.info("dry-run requested; no discovery or management connection will be opened");
         return 0;
@@ -661,37 +638,29 @@ int run_daemon(
         config.settings.controller_host
     );
 
-    openomada::openwrt::UciPlanOptions uci_options;
-    uci_options.management_vlan_interface = config.openwrt.management_vlan_interface;
-    uci_options.management_vlan_device = config.openwrt.management_vlan_device;
-    openomada::openwrt::OpenWrtUciReconciler uci_reconciler(capabilities, executor, uci_options);
-
-    openomada::openwrt::OpenNdsReconcilerOptions opennds_options;
-    opennds_options.controller_host = config.settings.controller_host;
-    opennds_options.device_mac = config.settings.mac;
-    opennds_options.site_id = config.settings.site_id;
-    opennds_options.flush_conntrack_on_deauth = config.openwrt.flush_conntrack_on_deauth;
-    openomada::openwrt::OpenNdsPortalReconciler opennds_reconciler(
-        capabilities,
-        executor,
-        opennds_options
+    // Strict downlink no-op: every controller write is acknowledged with a
+    // success ACK and no host system change is ever executed.
+    openomada::application::DownlinkNoOpConfigurationApplier no_op_applier;
+    openomada::application::CsvInformProvider csv_inform_provider(
+        config.settings,
+        {config.settings.aps_csv, config.settings.clients_csv}
     );
-
-    RuntimeSupportGuard support_guard(capabilities.supports_portal);
-    openomada::application::CompositeConfigurationApplier appliers;
-    appliers.add(support_guard);
-    appliers.add(uci_reconciler);
-    if (capabilities.supports_portal) {
-        appliers.add(opennds_reconciler);
+    if (!config.settings.aps_csv.empty() || !config.settings.clients_csv.empty()) {
+        logger.info(
+            "CSV uplink telemetry: state=" +
+            (config.settings.aps_csv.empty() ? openomada::application::default_aps_csv_path()
+                                             : config.settings.aps_csv) +
+            " clients=" +
+            (config.settings.clients_csv.empty() ? openomada::application::default_clients_csv_path()
+                                                 : config.settings.clients_csv)
+        );
+    } else {
+        logger.info(
+            "CSV uplink telemetry: state=" + openomada::application::default_aps_csv_path() +
+            " clients=" + openomada::application::default_clients_csv_path()
+        );
     }
-
-    openomada::openwrt::OpenWrtInformProviderOptions inform_options;
-    inform_options.include_opennds = capabilities.supports_portal;
-    openomada::openwrt::OpenWrtInformProvider live_inform_provider(executor, inform_options);
-    openomada::application::StaticInformProvider static_inform_provider;
-    openomada::application::InformProvider* inform_provider =
-        capabilities.tools.ubus ? static_cast<openomada::application::InformProvider*>(&live_inform_provider)
-                                : static_cast<openomada::application::InformProvider*>(&static_inform_provider);
+    openomada::application::InformProvider& inform_provider = csv_inform_provider;
 
     while (!stop_requested()) {
         auto session = try_managed_reconnect(repository, config.settings, logger);
@@ -716,8 +685,8 @@ int run_daemon(
         const auto outcome = run_managed_loop(
             &session.session,
             repository,
-            appliers,
-            *inform_provider,
+            no_op_applier,
+            inform_provider,
             logger
         );
         if (outcome == ManagedLoopOutcome::Stopped) {
@@ -766,6 +735,12 @@ int main(int argc, char** argv) {
     );
     if (!loaded.ok) {
         std::cerr << "openomada-agent-native[error]: " << loaded.error << '\n';
+        return 1;
+    }
+    std::string override_error;
+    apply_runtime_option_overrides(parsed_options.options, &loaded.config, &override_error);
+    if (!override_error.empty()) {
+        std::cerr << "openomada-agent-native[error]: " << override_error << '\n';
         return 1;
     }
     if (parsed_options.options.check_config) {

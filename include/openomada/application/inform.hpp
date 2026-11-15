@@ -10,8 +10,8 @@
 namespace openomada::application {
 
 struct LanObservation {
-    std::string rate{"100.0"};
-    std::int32_t duplex{1};
+    std::string rate{"1000"};
+    std::int32_t duplex{2};
     std::string port{"LAN"};
 };
 

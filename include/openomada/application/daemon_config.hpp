@@ -15,6 +15,12 @@ struct RuntimeOptions {
     bool check_config{false};
     bool once{false};
     bool dry_run{false};
+    std::string bind_ip{};
+    std::string eth_mac{};
+    std::string ap_name{};
+    std::string model{};
+    std::string aps_csv{};
+    std::string clients_csv{};
 };
 
 struct OpenWrtRuntimeConfig {

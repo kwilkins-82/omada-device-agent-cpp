@@ -18,6 +18,7 @@ add_library(openomada_core STATIC
     src/application/configuration_applier.cpp
     src/application/configuration.cpp
     src/application/configuration_exchange.cpp
+    src/application/csv_telemetry.cpp
     src/application/daemon_config.cpp
     src/application/inform.cpp
     src/crypto/ecsp_auth.cpp
@@ -31,11 +32,6 @@ add_library(openomada_core STATIC
     src/lifecycle/managed_session.cpp
     src/lifecycle/managed_request_handler.cpp
     src/lifecycle/reconnect.cpp
-    src/openwrt/uci.cpp
-    src/openwrt/telemetry.cpp
-    src/openwrt/opennds.cpp
-    src/openwrt/process.cpp
-    src/openwrt/inform_provider.cpp
     src/protocol/ecsp_builders.cpp
     src/protocol/ecsp_message.cpp
     src/protocol/frame_codec.cpp
@@ -74,6 +70,11 @@ endif()
 pkg_check_modules(OPENSSL_TLS REQUIRED IMPORTED_TARGET openssl)
 target_compile_definitions(openomada_core PUBLIC OPENOMADA_ENABLE_TLS=1)
 target_link_libraries(openomada_core PUBLIC PkgConfig::OPENSSL_TLS)
+
+if(UNIX AND NOT APPLE)
+    find_package(Threads REQUIRED)
+    target_link_libraries(openomada_core PUBLIC Threads::Threads)
+endif()
 
 add_executable(openomada-agent-native
     src/cli/main.cpp
@@ -205,44 +206,6 @@ if(OPENOMADA_BUILD_TESTS)
     )
     add_test(NAME openomada-platform-capabilities-tests COMMAND openomada-platform-capabilities-tests)
 
-    add_executable(openomada-openwrt-uci-tests
-        tests/test_openwrt_uci.cpp
-    )
-    target_link_libraries(openomada-openwrt-uci-tests PRIVATE openomada_core)
-    target_compile_options(openomada-openwrt-uci-tests PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
-    )
-    add_test(NAME openomada-openwrt-uci-tests COMMAND openomada-openwrt-uci-tests)
-
-    add_executable(openomada-openwrt-telemetry-tests
-        tests/test_openwrt_telemetry.cpp
-    )
-    target_link_libraries(openomada-openwrt-telemetry-tests PRIVATE openomada_core)
-    target_compile_options(openomada-openwrt-telemetry-tests PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
-    )
-    add_test(NAME openomada-openwrt-telemetry-tests COMMAND openomada-openwrt-telemetry-tests)
-
-    add_executable(openomada-opennds-tests
-        tests/test_opennds.cpp
-    )
-    target_link_libraries(openomada-opennds-tests PRIVATE openomada_core)
-    target_compile_options(openomada-opennds-tests PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
-    )
-    add_test(NAME openomada-opennds-tests COMMAND openomada-opennds-tests)
-
-    add_executable(openomada-openwrt-package-tests
-        tests/test_openwrt_package.cpp
-    )
-    target_compile_definitions(openomada-openwrt-package-tests PRIVATE
-        OPENOMADA_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}"
-    )
-    target_compile_options(openomada-openwrt-package-tests PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
-    )
-    add_test(NAME openomada-openwrt-package-tests COMMAND openomada-openwrt-package-tests)
-
     add_executable(openomada-daemon-config-tests
         tests/test_daemon_config.cpp
     )
@@ -252,21 +215,12 @@ if(OPENOMADA_BUILD_TESTS)
     )
     add_test(NAME openomada-daemon-config-tests COMMAND openomada-daemon-config-tests)
 
-    add_executable(openomada-openwrt-process-tests
-        tests/test_openwrt_process.cpp
+    add_executable(openomada-csv-telemetry-tests
+        tests/test_csv_telemetry.cpp
     )
-    target_link_libraries(openomada-openwrt-process-tests PRIVATE openomada_core)
-    target_compile_options(openomada-openwrt-process-tests PRIVATE
+    target_link_libraries(openomada-csv-telemetry-tests PRIVATE openomada_core)
+    target_compile_options(openomada-csv-telemetry-tests PRIVATE
         $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
     )
-    add_test(NAME openomada-openwrt-process-tests COMMAND openomada-openwrt-process-tests)
-
-    add_executable(openomada-openwrt-inform-provider-tests
-        tests/test_openwrt_inform_provider.cpp
-    )
-    target_link_libraries(openomada-openwrt-inform-provider-tests PRIVATE openomada_core)
-    target_compile_options(openomada-openwrt-inform-provider-tests PRIVATE
-        $<$<CXX_COMPILER_ID:GNU,Clang,AppleClang>:-Wall -Wextra -Wpedantic -Wconversion>
-    )
-    add_test(NAME openomada-openwrt-inform-provider-tests COMMAND openomada-openwrt-inform-provider-tests)
+    add_test(NAME openomada-csv-telemetry-tests COMMAND openomada-csv-telemetry-tests)
 endif()

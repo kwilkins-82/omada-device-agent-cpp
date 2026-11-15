@@ -116,7 +116,7 @@ void test_send_inform_uses_provider_snapshot_and_transport() {
     auto* body = openomada::protocol::ecsp_body(document.get());
     require(openomada::protocol::json_int(openomada::protocol::object_member(body, "needReply")).value_or(-1) == 1, "needReply set");
     auto* device_info = openomada::protocol::object_member(body, "deviceInfo");
-    require(openomada::protocol::json_string(openomada::protocol::object_member(device_info, "upTime")).value_or("") == "42", "uptime from scheduled inform");
+    require(openomada::protocol::json_string(openomada::protocol::object_member(device_info, "upTime")).value_or("") == "0 days 00:00:42", "uptime from scheduled inform");
 }
 
 void test_managed_state_from_adoption_does_not_include_password_material() {

@@ -13,3 +13,4 @@ compile_commands.json
 *.ipk
 *.apk
 *.log
+deploy/

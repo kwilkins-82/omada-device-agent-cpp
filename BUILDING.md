@@ -68,6 +68,57 @@ The native runtime must be developed assuming:
 
 ## Cross-Compilation Matrix
 
+## Ubuntu x86_64 Native Build
+
+Prerequisites: `build-essential`, `cmake`, `pkg-config`, `libssl-dev`, `libjson-c-dev`, `libpthread` (glibc).
+
+```sh
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j
+cd build && ctest
+```
+
+Example runtime invocation (multiple instances can coexist on one host next to a
+Docker Omada Controller because both sockets are bound to a specific local IP):
+
+```sh
+sudo ./build/openomada-agent-native \
+    --config /etc/config/openomada \
+    --bind-ip 192.0.2.10 \
+    --eth-mac 02:00:00:00:00:01 \
+    --ap-name Lab-EAP \
+    --model EAP225
+```
+
+Downlink is a strict no-op: every controller write (SET_REQUEST, WLAN/radio/
+channel provisioning, LED, reboot, upgrade, portal, client ops) is acknowledged
+with `errorCode: 0` and never executed against the host system.
+
+## systemd Deployment (`deploy/`)
+
+Binary install path: `cmake --install build` places the agent at
+`/usr/local/sbin/openomada-agent-native`, matching `ExecStart` in the unit.
+
+- `deploy/omada-ecsp-proxy@.service` — templated unit; instantiate once per
+  virtual AP (`systemctl enable --now omada-ecsp-proxy@<name>.service`). Each
+  instance uses its own config (`--config /etc/openomada/%i.conf`) and its own
+  state path (`/var/lib/openomada/%i/managed-state.json`) so post-adoption
+  credentials never overwrite each other. Each instance's bind IP must already
+  be assigned to a local interface (e.g. `ip addr add 192.0.2.10/32 dev eth0`),
+  so the unit performs no `ip addr add` at startup.
+- `deploy/openomada-instance.conf` — per-instance agent config template
+  (controller credentials plus `option state_path`).
+- `deploy/<name>.env` — per-instance environment: `BIND_IP` (e.g.
+  `192.0.2.10/32`), `IFACE` (e.g. `eth0`), `ETH_MAC` (locally administered,
+  e.g. `02:00:00:00:00:01`), `AP_NAME`, `MODEL`, `OPENOMADA_PHY` (`vht`/`he`),
+  and the CSV telemetry paths.
+
+The agent reads uplink telemetry CSVs on every INFORM cycle
+(`--aps-csv`, default `~/src/wap_ecsp_state.csv`; `--clients-csv`, default
+`~/src/wap_ecsp_clients.csv`), matching rows to its `--eth-mac`, and attaches
+`wSettings_2G`/`wSettings_5G` radio status (region 840, channel, bandwidth,
+BSSID, SSID, `txPower`) plus a `clients` stats array to the INFORM body.
+
 | Target | Expected Path | Daemon-Live Status |
 | --- | --- | --- |
 | x86_64 Linux/glibc | Native CMake | Prepared, not run in this macOS workspace |

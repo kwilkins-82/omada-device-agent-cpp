@@ -17,6 +17,7 @@ struct TlsClientOptions {
     std::uint32_t timeout_seconds{15};
     bool verify_peer{false};
     std::string ca_file{};
+    std::string bind_ip{};
 };
 
 class TlsFrameTransport final : public FrameTransport {

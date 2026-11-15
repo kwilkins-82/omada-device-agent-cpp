@@ -19,12 +19,16 @@ struct AgentSettings {
     std::string state_file{};
     bool tls_verify{false};
     std::string tls_ca_file{};
+    std::string bind_ip{};
+    std::string phy{"vht"};
+    std::string aps_csv{};
+    std::string clients_csv{};
 
     domain::MacAddress mac;
     std::string device_name{"OpenOmada-AP"};
     std::string model{"EAP110"};
-    std::string model_version{"4.0"};
-    std::string hardware_version{"4.0"};
+    std::string model_version{"3.0"};
+    std::string hardware_version{"3.0"};
     std::string firmware_version{"5.0.4"};
     std::uint32_t customize_region{841};
     std::string device_ip{"0.0.0.0"};

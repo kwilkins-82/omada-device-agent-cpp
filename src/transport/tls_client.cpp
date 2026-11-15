@@ -91,7 +91,7 @@ TlsFrameTransport::~TlsFrameTransport() {
 TransportStatus TlsFrameTransport::connect(const TlsClientOptions& options) {
     close();
     std::string error;
-    if (!connect_tcp(socket_, options.host, options.port, options.timeout_seconds, &error)) {
+    if (!connect_tcp(socket_, options.host, options.port, options.timeout_seconds, &error, options.bind_ip)) {
         return TransportStatus::failure(error);
     }
 

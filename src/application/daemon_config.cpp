@@ -12,6 +12,8 @@
 #include <sstream>
 #include <utility>
 
+#include <arpa/inet.h>
+
 namespace openomada::application {
 namespace {
 
@@ -329,6 +331,34 @@ RuntimeOptionsResult parse_runtime_options(const std::vector<std::string>& args)
             result.options.dry_run = true;
             continue;
         }
+        auto parse_value_arg = [&](const char* name, std::string* target) -> bool {
+            const std::string flag = std::string("--") + name;
+            if (value == flag) {
+                if (index + 1 >= values.size()) {
+                    result.ok = false;
+                    result.error = flag + " requires a value";
+                    return false;
+                }
+                *target = values[++index];
+                return true;
+            }
+            if (value.rfind(flag + "=", 0) == 0) {
+                *target = value.substr(flag.size() + 1);
+                return true;
+            }
+            return false;
+        };
+        if (parse_value_arg("bind-ip", &result.options.bind_ip) ||
+            parse_value_arg("eth-mac", &result.options.eth_mac) ||
+            parse_value_arg("ap-name", &result.options.ap_name) ||
+            parse_value_arg("model", &result.options.model) ||
+            parse_value_arg("aps-csv", &result.options.aps_csv) ||
+            parse_value_arg("clients-csv", &result.options.clients_csv)) {
+            if (!result.ok) {
+                return result;
+            }
+            continue;
+        }
         if (value == "--config") {
             if (index + 1 >= values.size()) {
                 result.ok = false;
@@ -391,6 +421,10 @@ LoadDaemonConfigResult load_daemon_config_from_text(
     }
     config.settings.tls_verify = tls_verify;
     apply_string(sections, environment, "agent", "tls_ca_file", "OPENOMADA_TLS_CA_FILE", &config.settings.tls_ca_file);
+    apply_string(sections, environment, "agent", "bind_ip", "OPENOMADA_BIND_IP", &config.settings.bind_ip);
+    apply_string(sections, environment, "agent", "phy", "OPENOMADA_PHY", &config.settings.phy);
+    apply_string(sections, environment, "agent", "aps_csv", "OPENOMADA_APS_CSV", &config.settings.aps_csv);
+    apply_string(sections, environment, "agent", "clients_csv", "OPENOMADA_CLIENTS_CSV", &config.settings.clients_csv);
 
     apply_string(sections, environment, "device", "name", "OPENOMADA_DEVICE_NAME", &config.settings.device_name);
     apply_string(sections, environment, "device", "model", "OPENOMADA_MODEL", &config.settings.model);
@@ -426,6 +460,13 @@ LoadDaemonConfigResult load_daemon_config_from_text(
     }
     if (auto value = env_value(environment, "OPENOMADA_DESTINATION_CONTROLLER_ID")) {
         config.settings.destination_controller_id = *value;
+    }
+
+    if (!config.settings.bind_ip.empty()) {
+        in_addr probe {};
+        if (::inet_pton(AF_INET, config.settings.bind_ip.c_str(), &probe) != 1) {
+            return fail("agent bind_ip must be a valid IPv4 address");
+        }
     }
 
     if (config.enabled) {
@@ -486,6 +527,8 @@ std::string daemon_config_summary(const DaemonConfig& config) {
     out += std::to_string(config.openwrt.max_ssids);
     out += " portal=";
     out += config.openwrt.portal_enabled ? config.openwrt.portal_engine : "disabled";
+    out += " bindIp=";
+    out += config.settings.bind_ip.empty() ? "<any>" : config.settings.bind_ip;
     return out;
 }
 
