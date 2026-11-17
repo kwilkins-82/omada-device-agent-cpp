@@ -261,6 +261,8 @@ CsvTelemetryResult load_csv_telemetry(const CsvTelemetryPaths& paths) noexcept {
                 parsed.band_5g = band_is_5g(column(raw, index, "band"));
                 parsed.ssid = column(raw, index, "ssid");
                 parsed.updated_at = column(raw, index, "updated_at");
+                parsed.client_ip = column(raw, index, "client_ip");
+                parsed.client_name = column(raw, index, "client_name");
                 sink->push_back(std::move(parsed));
                 return true;
             },
@@ -346,7 +348,10 @@ std::string client_stats_row_json(
     out += ",\"ssid\":";
     out += quoted(row.ssid.empty() ? std::string_view("Example_SSID_5G") : std::string_view(row.ssid));
     out += ",\"snr\":35,\"rssi\":-60,\"ccq\":0,\"down\":0,\"up\":0";
-    out += ",\"time\":\"0 days 00:10:00\",\"ip\":\"0.0.0.0\",\"name\":\"client\"";
+    out += ",\"time\":\"0 days 00:10:00\",\"ip\":";
+    out += quoted(row.client_ip.empty() ? std::string_view("0.0.0.0") : std::string_view(row.client_ip));
+    out += ",\"name\":";
+    out += quoted(row.client_name.empty() ? std::string_view("client") : std::string_view(row.client_name));
     out += ",\"type\":\"unknown\",\"pm\":";
     out += std::to_string(pm);
     out += ",\"ps\":0,\"txR\":400000,\"rxR\":400000,\"txT\":0,\"guest\":0";

@@ -42,7 +42,9 @@ struct ApStateCsvRow {
 };
 
 // Row of the connected clients CSV (wap_ecsp_clients.csv):
-// ap_name,ap_eth_mac,client_mac,band,ssid,updated_at
+// ap_name,ap_eth_mac,client_mac,client_ip,client_name,band,ssid,updated_at
+// The client_ip and client_name columns are optional; older CSVs without
+// them fall back to 0.0.0.0 / "client".
 struct ClientCsvRow {
     std::string ap_name{};
     domain::MacAddress ap_eth_mac{};
@@ -50,6 +52,8 @@ struct ClientCsvRow {
     bool band_5g{true};
     std::string ssid{};
     std::string updated_at{};
+    std::string client_ip{};
+    std::string client_name{};
 };
 
 struct CsvTelemetryPaths {

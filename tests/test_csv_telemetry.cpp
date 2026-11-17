@@ -39,10 +39,10 @@ int main() {
     );
     write_temp(
         paths.clients_csv,
-        "ap_name,ap_eth_mac,client_mac,band,ssid,updated_at\n"
-        "WAC124,02:00:00:00:00:01,aa:bb:cc:dd:ee:01,5g,Example_SSID_5G,2026-11-15 10:00:00\n"
-        "WAC124,02:00:00:00:00:01,aa:bb:cc:dd:ee:02,2.4g,Example_SSID_5G,2026-11-15 10:00:00\n"
-        "Other,00:11:22:33:44:55,aa:bb:cc:dd:ee:03,5g,Skip,2026-11-15 10:00:00\n"
+        "ap_name,ap_eth_mac,client_mac,client_ip,client_name,band,ssid,updated_at\n"
+        "WAC124,02:00:00:00:00:01,aa:bb:cc:dd:ee:01,192.0.2.51,Test-Phone,5g,Example_SSID_5G,2026-11-15 10:00:00\n"
+        "WAC124,02:00:00:00:00:01,aa:bb:cc:dd:ee:02,192.0.2.52,Test-Speaker,2.4g,Example_SSID_5G,2026-11-15 10:00:00\n"
+        "Other,00:11:22:33:44:55,aa:bb:cc:dd:ee:03,192.0.2.53,Foreign,5g,Skip,2026-11-15 10:00:00\n"
     );
 
     const auto telemetry = application::load_csv_telemetry(paths);
@@ -58,6 +58,10 @@ int main() {
     require(matched.bandwidth_2g == "20MHz", "2g bandwidth parsed");
     require(matched.ssid_2g == "Example_SSID_2G", "2g ssid parsed");
     require(matched.has_2g(), "2g fields present");
+
+    const auto& first_client = telemetry.clients.front();
+    require(first_client.client_ip == "192.0.2.51", "client ip parsed");
+    require(first_client.client_name == "Test-Phone", "client name parsed");
 
     openomada::application::AgentSettings settings;
     auto mac = domain::MacAddress::parse("02:00:00:00:00:01");
@@ -94,7 +98,7 @@ int main() {
         client_5g ==
             "{\"mac\":\"AA-BB-CC-DD-EE-01\",\"rid\":1,\"ap\":\"WAC124-02-00-00-00-00-01\","
             "\"ssid\":\"Example_SSID_5G\",\"snr\":35,\"rssi\":-60,\"ccq\":0,\"down\":0,\"up\":0,"
-            "\"time\":\"0 days 00:10:00\",\"ip\":\"0.0.0.0\",\"name\":\"client\",\"type\":\"unknown\","
+            "\"time\":\"0 days 00:10:00\",\"ip\":\"192.0.2.51\",\"name\":\"Test-Phone\",\"type\":\"unknown\","
             "\"pm\":5,\"ps\":0,\"txR\":400000,\"rxR\":400000,\"txT\":0,\"guest\":0,"
             "\"rxP\":100,\"txP\":100,\"aTime\":60}",
         "5g client json: " + client_5g
@@ -103,6 +107,15 @@ int main() {
     const std::string client_24g = application::client_stats_row_json(telemetry.clients[1], settings, "vht");
     require(client_24g.find("\"rid\":0") != std::string::npos, "2.4g rid 0");
     require(client_24g.find("\"pm\":4") != std::string::npos, "2.4g pm 4");
+    require(client_24g.find("\"ip\":\"192.0.2.52\"") != std::string::npos, "2.4g client ip forwarded");
+    require(client_24g.find("\"name\":\"Test-Speaker\"") != std::string::npos, "2.4g client name forwarded");
+
+    openomada::application::ClientCsvRow legacy_client = telemetry.clients.front();
+    legacy_client.client_ip.clear();
+    legacy_client.client_name.clear();
+    const std::string client_legacy = application::client_stats_row_json(legacy_client, settings, "vht");
+    require(client_legacy.find("\"ip\":\"0.0.0.0\"") != std::string::npos, "legacy client ip fallback");
+    require(client_legacy.find("\"name\":\"client\"") != std::string::npos, "legacy client name fallback");
 
     const std::string client_he = application::client_stats_row_json(telemetry.clients[0], settings, "he");
     require(client_he.find("\"pm\":6") != std::string::npos, "he pm 6");
